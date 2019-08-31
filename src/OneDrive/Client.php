@@ -284,13 +284,8 @@ class Client
         //Build Options
         $options = $this->buildOptions($options);
 
-        try {
-            //Send the Request
-            return $this->guzzle->send($request, $options);
-        } catch (\Exception $e) {
-            var_dump($e);
-            exit();
-        }
+        //Send the Request
+        return $this->guzzle->send($request, $options);
     }
 
     /**

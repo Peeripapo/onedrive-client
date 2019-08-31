@@ -19,10 +19,12 @@ class Client
      */
     const DEFAULT_DRIVE = "me";
 
+    const DEFAULT_CHUNK_SIZE = 4000000;
+
     /**
      * The Guzzle Client.
      *
-     * @var GuzzleHttp\Client
+     * @var \GuzzleHttp\Client
      */
     private $guzzle;
 
@@ -613,6 +615,91 @@ class Client
         $downloadedFile = $this->downloadFile($downloadUrl);
 
         return $downloadedFile;
+    }
+
+    /**
+     * @param string $item_id
+     * @param string $destinationFolder
+     * @param int|null $chunkSize
+     * @throws OneDriveClientException
+     */
+    public function downloadItemChunked($item_id, $destinationFolder, $chunkSize = null)
+    {
+        if (is_null($chunkSize)) {
+            $chunkSize = static::DEFAULT_CHUNK_SIZE;
+        }
+
+        $downloadSource = $this->getItem($item_id);
+
+        $this->proceedChunkedDownload(
+            $downloadSource->{'@content.downloadUrl'},
+            "{$destinationFolder}/{$downloadSource->name}",
+            $downloadSource->size,
+            $chunkSize
+        );
+    }
+
+    /**
+     * Proceed chunked download for given file.
+     *
+     * @param string $sourceFilePath
+     * @param string $destinationFilePath
+     * @param $sourceFileSize
+     * @param $chunkSize
+     */
+    protected function proceedChunkedDownload($sourceFilePath, $destinationFilePath, $sourceFileSize, $chunkSize)
+    {
+        $downloaded = 0;
+        $remainingBytes = $sourceFileSize - 1;
+        $offset = $downloaded + $chunkSize - 1;
+
+        if ($sourceFileSize <= $chunkSize) {
+            $chunkSize = intval($sourceFileSize / 2);
+            $offset = $downloaded + $chunkSize - 1;
+        }
+
+        $fileStream = fopen($destinationFilePath, 'a+');
+        stream_set_write_buffer($fileStream, $chunkSize);
+
+        while ($remainingBytes > $chunkSize) {
+
+            fwrite(
+                $fileStream,
+                $this->partialContentDownload($sourceFilePath, $downloaded, $offset)
+            );
+
+            $downloaded = $downloaded + $chunkSize;
+            $offset = $downloaded + $chunkSize - 1;
+            $remainingBytes = $remainingBytes - $chunkSize;
+        }
+
+        fwrite(
+            $fileStream,
+            $this->partialContentDownload($sourceFilePath, $downloaded, $sourceFileSize)
+        );
+        fclose($fileStream);
+    }
+
+    /**
+     * Preforms partial content http request by given range: from $downloaded to $offset.
+     *
+     * @param $url
+     * @param int $downloaded
+     * @param int $offset
+     * @return string
+     */
+    protected function partialContentDownload($url, $downloaded, $offset)
+    {
+        $headers = [
+            'Range' => "bytes={$downloaded}-{$offset}"
+        ];
+
+        $headers = array_merge($headers, $this->getDefaultHeaders());
+
+        $response = $this->makeRequest('GET', $url, [], null, $headers);
+
+
+        return $response->getBody();
     }
 
     /**
